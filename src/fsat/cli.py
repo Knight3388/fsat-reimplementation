@@ -23,7 +23,7 @@ import sys
 from typing import Optional
 
 import torch
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 
 from .attacks import AttackConfig
 from .data import AugmentConfig, ManifestDataset, SyntheticSpeechDataset, collate
@@ -41,7 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     data = p.add_argument_group("data")
     data.add_argument("--train-manifest", help="TSV of 'path<TAB>label'. Omit to use synthetic audio.")
-    data.add_argument("--val-manifest", help="Validation manifest.")
+    data.add_argument("--val-manifest", help="Validation manifest, used for model selection.")
+    data.add_argument(
+        "--test-manifest",
+        help="Held-out manifest for final reporting. Keeping this separate from "
+             "--val-manifest is what stops checkpoint selection from peeking at "
+             "the evaluation set. Falls back to --val-manifest if omitted.",
+    )
     data.add_argument("--root", help="Prefix for relative paths in the manifests.")
     data.add_argument("--sample-rate", type=int, default=16000)
     data.add_argument("--duration", type=float, default=3.0, help="Seconds per training crop.")
@@ -88,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("--report", help="Path to write a JSON metrics report.")
     out.add_argument("--eval-corruptions", action="store_true", help="Run the 24-corruption battery (Fig. 7a).")
     out.add_argument("--eval-attacks", action="store_true", help="Run the band and domain attack sweeps (Tables 3-5).")
+    out.add_argument(
+        "--eval-subset", type=int, default=0,
+        help="Cap the attack and corruption sweeps at this many utterances (0 = no cap). "
+             "Clean accuracy always uses the full set. The cap is recorded in the report.",
+    )
     out.add_argument("--log-every", type=int, default=10)
     return p
 
@@ -140,7 +151,16 @@ def main(argv: Optional[list] = None) -> int:
             if args.val_manifest
             else None
         )
+        test_set = (
+            ManifestDataset(
+                args.test_manifest, args.sample_rate, args.duration, None,
+                random_crop=False, root=args.root, seed=args.seed + 2,
+            )
+            if args.test_manifest
+            else None
+        )
     else:
+        test_set = None
         print("no --train-manifest given, using synthetic audio", file=sys.stderr)
         train_set = SyntheticSpeechDataset(
             args.train_items, args.sample_rate, args.duration, augment, seed=args.seed
@@ -161,6 +181,26 @@ def main(argv: Optional[list] = None) -> int:
         if val_set is not None
         else None
     )
+
+    def _eval_loader(dataset, limit: int = 0):
+        if dataset is None:
+            return None
+        if limit and limit < len(dataset):
+            # A seeded random subset, not the first N. Protocol files are not
+            # guaranteed to interleave classes, so a head slice can land almost
+            # entirely in one class and silently invalidate the sweep.
+            g = torch.Generator().manual_seed(args.seed)
+            picks = torch.randperm(len(dataset), generator=g)[:limit].tolist()
+            dataset = Subset(dataset, sorted(picks))
+        return DataLoader(
+            dataset, batch_size=args.batch_size, shuffle=False,
+            collate_fn=collate, num_workers=args.workers,
+        )
+
+    # Report on the held-out split when one is given, else fall back to val.
+    report_set = test_set if test_set is not None else val_set
+    report_loader = _eval_loader(report_set)
+    sweep_loader = _eval_loader(report_set, args.eval_subset)
 
     config = TrainConfig(
         epochs=args.epochs,
@@ -216,14 +256,28 @@ def main(argv: Optional[list] = None) -> int:
     if use_best:
         report["best_epoch"] = best["epoch"]
 
-    if val_loader is not None:
-        clean = trainer.evaluate(val_loader)
-        print(f"\nclean:  {clean}")
+    if report_loader is not None:
+        split = "test" if test_set is not None else "val"
+        clean = trainer.evaluate(report_loader)
+        print(f"\nclean ({split}, n={len(report_set)}):  {clean}")
         report["clean"] = clean.as_dict()
+        report["report_split"] = split
+        report["report_n"] = len(report_set)
+
+        if args.eval_subset and args.eval_subset < len(report_set):
+            # State the cap loudly: a truncated sweep otherwise reads as full coverage.
+            print(
+                f"\nNOTE: attack and corruption sweeps capped at {args.eval_subset} "
+                f"of {len(report_set)} utterances.",
+                flush=True,
+            )
+            report["sweep_n"] = args.eval_subset
+        else:
+            report["sweep_n"] = len(report_set)
 
         if args.eval_attacks:
             domains = evaluate_attack_domains(
-                model, val_loader, trainer.stft, args.f_lo, args.f_hi, config.attack, args.device
+                model, sweep_loader, trainer.stft, args.f_lo, args.f_hi, config.attack, args.device
             )
             print("\nattack domains (Fig. 8a):")
             for name, rep in domains.items():
@@ -231,7 +285,7 @@ def main(argv: Optional[list] = None) -> int:
             report["attack_domains"] = {k: v.as_dict() for k, v in domains.items()}
 
             bands = evaluate_attack_bands(
-                model, val_loader, trainer.stft, config=config.attack, device=args.device
+                model, sweep_loader, trainer.stft, config=config.attack, device=args.device
             )
             print("\nattack bands (Table 4):")
             for name, rep in bands.items():
@@ -240,7 +294,7 @@ def main(argv: Optional[list] = None) -> int:
 
         if args.eval_corruptions:
             corruptions = evaluate_corruptions(
-                model, val_loader, args.sample_rate, device=args.device, seed=args.seed
+                model, sweep_loader, args.sample_rate, device=args.device, seed=args.seed
             )
             print("\ncorruptions (Fig. 7a):")
             for name, rep in sorted(corruptions.items()):
