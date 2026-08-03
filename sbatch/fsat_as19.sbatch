@@ -57,6 +57,11 @@ else
   EVAL_SUBSET=4000
 fi
 
+# TEST_MAN can be overridden to point a smoke-sized training run at the FULL
+# eval manifest, which is the only way to exercise the file-descriptor path
+# that killed job 263770 without paying for a full training run.
+TEST_MAN=${TEST_MAN:-$MAN/eval.tsv}
+
 OUT=$ROOT/runs/$NAME
 mkdir -p "$OUT" "$ROOT/logs"
 
@@ -83,7 +88,7 @@ echo "open-file limit: $(ulimit -n)"
 ARGS=(
   --train-manifest "$MAN/train.tsv"
   --val-manifest   "$MAN/dev.tsv"
-  --test-manifest  "$MAN/eval.tsv"
+  --test-manifest  "$TEST_MAN"
   --sample-rate 16000
   --duration 4.0
   --batch-size 32
