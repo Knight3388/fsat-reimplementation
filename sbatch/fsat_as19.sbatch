@@ -3,7 +3,10 @@
 #SBATCH --array=0-3
 #SBATCH --partition=gpu_h100_4
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
+# qos_gpu_h100 caps this user at cpu=8 across the whole partition, so asking
+# for 8 here would let only ONE array task run at a time. 2 keeps three
+# concurrent, which is also the QOS ceiling on GPUs.
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=64G
 #SBATCH --time=2-00:00:00
 #SBATCH --output=/scratch/sameera/fsat/logs/%x_%A_%a.out
@@ -78,7 +81,7 @@ ARGS=(
   --sample-rate 16000
   --duration 4.0
   --batch-size 32
-  --workers 8
+  --workers "${SLURM_CPUS_PER_TASK:-2}"
   --balanced-sampler
   --adversary "$ADV"
   --gamma 0.1
