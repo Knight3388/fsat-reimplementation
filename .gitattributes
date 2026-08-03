@@ -1,0 +1,6 @@
+# This repo is authored on Windows but deployed to Linux HPC nodes. Anything
+# executed there must keep LF endings, or the kernel fails on "#!/bin/bash\r".
+* text=auto eol=lf
+*.sbatch text eol=lf
+*.sh     text eol=lf
+*.py     text eol=lf
