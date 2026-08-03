@@ -137,6 +137,13 @@ def main(argv: Optional[list] = None) -> int:
     args = build_parser().parse_args(argv)
     torch.manual_seed(args.seed)
 
+    if args.workers > 0:
+        # The default file_descriptor sharing strategy holds one FD per shared
+        # tensor. Evaluating a large manifest (ASVspoof2019 eval is 71,237
+        # utterances) exhausts a 1024 FD limit and kills the run after training
+        # has already finished. file_system does not accumulate descriptors.
+        torch.multiprocessing.set_sharing_strategy("file_system")
+
     augment = AugmentConfig(enabled=args.randaug, n=args.randaug_n, p=args.randaug_p)
 
     if args.train_manifest:
@@ -256,6 +263,17 @@ def main(argv: Optional[list] = None) -> int:
     if use_best:
         report["best_epoch"] = best["epoch"]
 
+    # Persist the trained weights BEFORE evaluating. Evaluation is long and can
+    # fail on its own (a full-manifest DataLoader is a different beast from the
+    # training loop), and losing hours of finished training to a downstream bug
+    # is unrecoverable. Saving here makes any eval failure re-runnable.
+    if args.save:
+        torch.save({"model": model.state_dict(), "config": vars(args)}, args.save)
+        print(f"\nsaved checkpoint to {args.save}", flush=True)
+    if args.report:
+        with open(args.report, "w", encoding="utf-8") as fh:
+            json.dump({**report, "status": "trained, evaluation pending"}, fh, indent=2, default=str)
+
     if report_loader is not None:
         split = "test" if test_set is not None else "val"
         clean = trainer.evaluate(report_loader)
@@ -301,14 +319,13 @@ def main(argv: Optional[list] = None) -> int:
                 print(f"  {name:26s} {rep}")
             report["corruptions"] = {k: v.as_dict() for k, v in corruptions.items()}
 
-    if args.save:
-        torch.save({"model": model.state_dict(), "config": vars(args)}, args.save)
-        print(f"\nsaved checkpoint to {args.save}")
-
+    # The checkpoint was already written above, before evaluation. Overwrite the
+    # placeholder report with the complete one.
     if args.report:
+        report["status"] = "complete"
         with open(args.report, "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=2, default=str)
-        print(f"saved report to {args.report}")
+        print(f"\nsaved report to {args.report}")
 
     return 0
 

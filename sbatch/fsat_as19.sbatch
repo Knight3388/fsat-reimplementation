@@ -74,6 +74,12 @@ cd "$ROOT"
 export PYTHONPATH=$ROOT/src
 export PYTHONUNBUFFERED=1
 
+# Compute nodes default to a 1024 FD soft limit, which a DataLoader over the
+# 71,237-utterance eval manifest exhausts. The code also sets the file_system
+# sharing strategy; this is the second line of defence.
+ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+echo "open-file limit: $(ulimit -n)"
+
 ARGS=(
   --train-manifest "$MAN/train.tsv"
   --val-manifest   "$MAN/dev.tsv"
