@@ -1,0 +1,24 @@
+# Environments
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Run artifacts — generated, and too large to track
+manifests/
+checkpoints/
+runs/
+logs/
+*.pt
+*.ckpt
+results*.json
