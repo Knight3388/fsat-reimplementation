@@ -114,18 +114,25 @@ def evaluate_attack_domains(
     f_hi: float = 8000.0,
     config: Optional[AttackConfig] = None,
     device: str | torch.device = "cpu",
+    time_config: Optional[AttackConfig] = None,
 ) -> Dict[str, ClassificationReport]:
     """Accuracy under time / magnitude / phase attacks (Fig. 8a).
 
     The paper's finding is that magnitude attacks degrade the detector most and
     phase attacks least, which is why F-SAT perturbs magnitude.
+
+    ``time_config`` overrides the budget for the time-domain probe only. The
+    paper uses a different step size in the time domain (alpha 4e-5) than in
+    frequency (4e-4), and applying one budget to both is not a like-for-like
+    comparison: a perturbation that is modest on an STFT magnitude is large on
+    a waveform in [-1, 1].
     """
     device = torch.device(device)
     model.eval()
     cfg = config or AttackConfig()
     attacks = {
         "no_attack": None,
-        "time": TimeDomainAttack(cfg),
+        "time": TimeDomainAttack(time_config or cfg),
         "spec_magnitude": FrequencySelectiveAttack(stft, f_lo, f_hi, cfg),
         "spec_phase": PhaseAttack(stft, f_lo, f_hi, cfg),
     }

@@ -77,6 +77,20 @@ def build_parser() -> argparse.ArgumentParser:
     adv.add_argument("--steps", type=int, default=5, help="PGD iterations (K).")
     adv.add_argument("--restarts", type=int, default=1)
 
+    ev = p.add_argument_group("evaluation-time attack budget (Table 5)")
+    ev.add_argument("--load", help="Load model weights from this checkpoint before running.")
+    ev.add_argument("--eval-only", action="store_true", help="Skip training; evaluate --load only.")
+    ev.add_argument(
+        "--eval-epsilon", type=float, default=None,
+        help="Attack magnitude for the evaluation sweeps (paper Table 5: 1e-4). "
+             "Defaults to --epsilon, which evaluates at the TRAINING budget and "
+             "flatters a model whose training attack matches the probe.",
+    )
+    ev.add_argument("--eval-alpha", type=float, default=None,
+                    help="PGD step for frequency-domain evaluation (paper: 4e-4). Defaults to --alpha.")
+    ev.add_argument("--eval-alpha-time", type=float, default=None,
+                    help="PGD step for the time-domain probe (paper: 4e-5). Defaults to --eval-alpha.")
+
     opt = p.add_argument_group("optimization")
     opt.add_argument("--epochs", type=int, default=10)
     opt.add_argument("--lr", type=float, default=1e-3)
@@ -227,7 +241,23 @@ def main(argv: Optional[list] = None) -> int:
     )
 
     model = RawNet3Detector(sample_rate=args.sample_rate)
+    if args.load:
+        state = torch.load(args.load, map_location="cpu", weights_only=False)
+        model.load_state_dict(state["model"] if "model" in state else state)
+        print(f"loaded weights from {args.load}", flush=True)
     trainer = FSATTrainer(model, config)
+
+    # Evaluation-time attack budget, independent of the training budget.
+    eval_attack = AttackConfig(
+        epsilon=args.eval_epsilon if args.eval_epsilon is not None else args.epsilon,
+        alpha=args.eval_alpha if args.eval_alpha is not None else args.alpha,
+        num_steps=args.steps, num_restarts=args.restarts,
+    )
+    eval_attack_time = AttackConfig(
+        epsilon=eval_attack.epsilon,
+        alpha=(args.eval_alpha_time if args.eval_alpha_time is not None else eval_attack.alpha),
+        num_steps=args.steps, num_restarts=args.restarts,
+    )
 
     print(
         f"training RawNet3{'+RandAug' if args.randaug else ''}"
@@ -253,7 +283,11 @@ def main(argv: Optional[list] = None) -> int:
     if args.save_best and val_loader is None:
         print("--save-best ignored: no --val-manifest given", file=sys.stderr)
 
-    trainer.fit(train_loader, val_loader, on_epoch_end=track_best if use_best else None)
+    if args.eval_only:
+        print("--eval-only: skipping training", flush=True)
+        use_best = False
+    else:
+        trainer.fit(train_loader, val_loader, on_epoch_end=track_best if use_best else None)
 
     if use_best and best["state"] is not None:
         print(f"\nrestoring best checkpoint from epoch {best['epoch']}", flush=True)
@@ -263,11 +297,18 @@ def main(argv: Optional[list] = None) -> int:
     if use_best:
         report["best_epoch"] = best["epoch"]
 
+    report["eval_attack"] = {
+        "epsilon": eval_attack.epsilon,
+        "alpha_freq": eval_attack.alpha,
+        "alpha_time": eval_attack_time.alpha,
+        "matches_training_budget": eval_attack.epsilon == args.epsilon,
+    }
+
     # Persist the trained weights BEFORE evaluating. Evaluation is long and can
     # fail on its own (a full-manifest DataLoader is a different beast from the
     # training loop), and losing hours of finished training to a downstream bug
     # is unrecoverable. Saving here makes any eval failure re-runnable.
-    if args.save:
+    if args.save and not args.eval_only:
         torch.save({"model": model.state_dict(), "config": vars(args)}, args.save)
         print(f"\nsaved checkpoint to {args.save}", flush=True)
     if args.report:
@@ -294,8 +335,11 @@ def main(argv: Optional[list] = None) -> int:
             report["sweep_n"] = len(report_set)
 
         if args.eval_attacks:
+            print(f"\nattack budget: eps={eval_attack.epsilon:g} "
+                  f"alpha_freq={eval_attack.alpha:g} alpha_time={eval_attack_time.alpha:g}", flush=True)
             domains = evaluate_attack_domains(
-                model, sweep_loader, trainer.stft, args.f_lo, args.f_hi, config.attack, args.device
+                model, sweep_loader, trainer.stft, args.f_lo, args.f_hi, eval_attack, args.device,
+                time_config=eval_attack_time,
             )
             print("\nattack domains (Fig. 8a):")
             for name, rep in domains.items():
@@ -303,7 +347,7 @@ def main(argv: Optional[list] = None) -> int:
             report["attack_domains"] = {k: v.as_dict() for k, v in domains.items()}
 
             bands = evaluate_attack_bands(
-                model, sweep_loader, trainer.stft, config=config.attack, device=args.device
+                model, sweep_loader, trainer.stft, config=eval_attack, device=args.device
             )
             print("\nattack bands (Table 4):")
             for name, rep in bands.items():

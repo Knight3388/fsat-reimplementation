@@ -38,6 +38,13 @@ NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
 ADVERSARY=(none none time fsat)
 RANDAUG=(0 1 1 1)
 
+# Per-row training budget. The paper gives DIFFERENT budgets per domain:
+# eps=0.01 / alpha=4e-4 in frequency, eps=1e-4 / alpha=4e-5 in time. Applying
+# the frequency budget to a time-domain waveform attack over-perturbs it 100x
+# and cripples the isotropic-AT baseline that F-SAT is compared against.
+TRAIN_EPS=(0.01 0.01 1e-4 0.01)
+TRAIN_ALPHA=(4e-4 4e-4 4e-5 4e-4)
+
 i=${SLURM_ARRAY_TASK_ID:-0}
 NAME=${NAMES[$i]}
 ADV=${ADVERSARY[$i]}
@@ -97,7 +104,8 @@ ARGS=(
   --adversary "$ADV"
   --gamma 0.1
   --f-lo 4000 --f-hi 8000
-  --epsilon 0.01 --alpha 0.004 --steps 5
+  --epsilon "${TRAIN_EPS[$i]}" --alpha "${TRAIN_ALPHA[$i]}" --steps 5
+  --eval-epsilon 1e-4 --eval-alpha 4e-4 --eval-alpha-time 4e-5
   --epochs "$EPOCHS"
   --lr 1e-3
   --seed 1000
