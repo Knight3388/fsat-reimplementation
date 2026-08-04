@@ -1,11 +1,44 @@
 # F-SAT — Frequency-Selective Adversarial Training
 
-Reimplementation of:
+**Unofficial** reimplementation, written from the paper text, of:
 
 > Zirui Zhang, Wei Hao, Aroon Sankoh, William Lin, Emanuel Mendiola-Ortiz,
 > Junfeng Yang, Chengzhi Mao.
 > **"I Can Hear You: Selective Robust Training for Deepfake Audio Detection."**
 > arXiv:2411.00121v1 (ICLR 2025).
+
+> [!IMPORTANT]
+> **Not affiliated with the paper's authors.** They released no code, no
+> dataset, and no reproducibility statement, so nothing here is verified
+> against a reference implementation. The method is theirs; the bugs are ours.
+>
+> **A full replication of the paper is impossible for anyone.** Its headline
+> numbers are measured on DeepFakeVox-HQ, a 1.3 M-sample corpus that was never
+> released and cannot be rebuilt: 5 of its 14 deepfake sources are paid
+> commercial APIs and the real half of its test set is scraped from YouTube.
+> The paper also omits its optimizer, learning rate, batch size, epoch count
+> and clip length. This repo therefore targets **ASVspoof2019**, a public
+> corpus the paper also evaluates on.
+>
+> **No results are published in this repository.** Numbers we have generated
+> are single-seed and still under correction, and an earlier set of ours was
+> wrong by a wide margin (see *Two different epsilons* below for the trap that
+> caused it). Do not cite figures from this code without running your own
+> seeds.
+
+### If you are here to learn the method
+
+Start with `scripts/smoke_test.py`. It trains and attacks a detector on
+**procedurally generated audio**, so it needs no dataset, no GPU and no cluster
+account — it runs on a laptop CPU in a couple of minutes. Then read
+`src/fsat/stft.py` (the band-selective operator) and `src/fsat/trainer.py` (the
+min-max objective); between them they are about 150 lines and contain the whole
+idea. `uv run pytest -q` runs 165 tests that assert the paper's formulas hold.
+
+The section *Where this departs from the paper, and why* is worth reading in
+full: it lists eight places the paper is ambiguous or silent, and what we chose.
+Learning to spot and document those gaps is most of the skill in reproducing a
+paper.
 
 Self-contained and dependency-light: PyTorch, NumPy and SciPy only. No
 `asteroid-filterbanks`, no `audiomentations`, no dataset download required to

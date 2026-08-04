@@ -9,8 +9,8 @@
 # Usage: poll_status.sh <array_job_id>
 
 JOB=${1:?usage: poll_status.sh <array_job_id>}
-ROOT=/scratch/sameera/fsat
-PY=/home/sameera/.conda/envs/myenv/bin/python
+ROOT=${FSAT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
+PY=${FSAT_PYTHON:-python3}
 NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
 
 sacct -j "$JOB" -X --noheader -P -o JobID,State,Elapsed 2>/dev/null |

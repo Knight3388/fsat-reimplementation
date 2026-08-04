@@ -10,6 +10,7 @@ Usage: python scripts/summarize_runs.py [runs_dir]
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from statistics import mean
@@ -35,7 +36,7 @@ def avg_of(section: dict, key: str = "average_accuracy"):
 
 
 def main(argv=None) -> int:
-    runs = Path(argv[0]) if argv else Path("/scratch/sameera/fsat/runs")
+    runs = Path(argv[0]) if argv else Path(os.environ.get("FSAT_ROOT", ".")) / "runs"
     data = {}
     for key, _ in ROWS:
         path = runs / key / "report.json"

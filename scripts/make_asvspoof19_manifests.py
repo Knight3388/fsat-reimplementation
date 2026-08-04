@@ -17,7 +17,7 @@ stay possible later without re-parsing the protocol.
 Usage::
 
     python scripts/make_asvspoof19_manifests.py \
-        --la-root "/home/sameera/unofficail_audio_deepfake/Dataset/LA" \
+        --la-root /path/to/ASVspoof2019/LA \
         --out-dir manifests/asvspoof19
 """
 

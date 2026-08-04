@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026 Ashish Kumar Kumawat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOTE ON SCOPE
+
+This licence covers THIS IMPLEMENTATION only. The F-SAT method, the
+DeepFakeVox-HQ dataset and all results described in the paper below are the
+work of its authors and are not covered by this licence:
+
+  Zirui Zhang, Wei Hao, Aroon Sankoh, William Lin, Emanuel Mendiola-Ortiz,
+  Junfeng Yang, Chengzhi Mao. "I Can Hear You: Selective Robust Training for
+  Deepfake Audio Detection." ICLR 2025. arXiv:2411.00121.
+
+This is an UNOFFICIAL reimplementation written from the paper text. It is not
+affiliated with, endorsed by, or reviewed by those authors, who released no
+reference implementation.
+
+The RawNet3 architecture is due to Jung et al., arXiv:2203.08488, and is
+reimplemented here from that paper's description.
+
+ASVspoof2019 is distributed under its own licence by its organisers and is not
+included in this repository.

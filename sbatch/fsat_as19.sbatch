@@ -1,28 +1,23 @@
 #!/bin/bash
 #SBATCH --job-name=fsat_as19
 #SBATCH --array=0-3
-# Override with:  sbatch --partition=<name> sbatch/fsat_as19.sbatch
+# Partition is site-specific. Override at submit time:
+#   sbatch --partition=<name> sbatch/fsat_as19.sbatch
 #
-# This cluster's association rejects multi-partition requests ("Multiple
-# partition job request not supported when a partition is set in the
-# association"), so a job must name exactly ONE partition and spreading work
-# means submitting separately per partition.
-#
-#   gpu_h100_4                   H100 80GB   QOS 3 jobs / 3 GPUs / 8 CPUs  <- default, fastest available
-#   gpu_rtx_pro_6000_6_csis_hyd  Blackwell   QOS 2 GPUs / 16 CPUs. Verified sm_120 + torch cu128.
-#                                            Shares its 2-GPU cap with SafeEar eval jobs — check first.
-#   gpu_v100_2                   V100 32GB   no TF32, roughly 3-5x slower here. Overflow only.
-#   gpu_a100_8 / gpu_h200_8      QOS 2 jobs each.
+# Some clusters reject multi-partition requests ("Multiple partition job request
+# not supported when a partition is set in the association"), in which case a
+# job must name exactly ONE partition and spreading work means submitting
+# separately per partition. Check your site's QOS caps (sacctmgr show qos) for
+# per-user job, GPU and CPU limits before sizing an array: a cpus-per-task that
+# exceeds the QOS CPU cap will serialise the whole array.
 #SBATCH --partition=gpu_h100_4
 #SBATCH --gres=gpu:1
-# qos_gpu_h100 caps this user at cpu=8 across the whole partition, so asking
-# for 8 here would let only ONE array task run at a time. 2 keeps three
-# concurrent, which is also the QOS ceiling on GPUs.
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=64G
 #SBATCH --time=2-00:00:00
-#SBATCH --output=/scratch/sameera/fsat/logs/%x_%A_%a.out
-#SBATCH --error=/scratch/sameera/fsat/logs/%x_%A_%a.out
+# Relative to the submit directory, so no absolute site paths are baked in.
+#SBATCH --output=logs/%x_%A_%a.out
+#SBATCH --error=logs/%x_%A_%a.out
 #
 # Table 3 of arXiv:2411.00121v1, reproduced on ASVspoof2019 LA.
 #
@@ -41,8 +36,12 @@
 
 set -uo pipefail
 
-ROOT=/scratch/sameera/fsat
-PY=/home/sameera/.conda/envs/myenv/bin/python
+# Site configuration. Set these in your environment, or export them once in a
+# site file and `sbatch --export=ALL`:
+#   FSAT_ROOT    checkout directory (defaults to this script's parent)
+#   FSAT_PYTHON  interpreter with torch + soundfile installed
+ROOT=${FSAT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+PY=${FSAT_PYTHON:-python3}
 SMOKE=${SMOKE:-0}
 
 # Table 3 rows, in order.

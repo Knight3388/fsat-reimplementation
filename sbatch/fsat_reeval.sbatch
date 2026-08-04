@@ -6,8 +6,9 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
-#SBATCH --output=/scratch/sameera/fsat/logs/%x_%A_%a.out
-#SBATCH --error=/scratch/sameera/fsat/logs/%x_%A_%a.out
+# Relative to the submit directory, so no absolute site paths are baked in.
+#SBATCH --output=logs/%x_%A_%a.out
+#SBATCH --error=logs/%x_%A_%a.out
 #
 # Re-evaluate existing checkpoints at the PAPER'S evaluation budget
 # (Table 5: eps=1e-4, alpha=4e-4 frequency, alpha=4e-5 time).
@@ -21,8 +22,9 @@
 
 set -uo pipefail
 
-ROOT=/scratch/sameera/fsat
-PY=/home/sameera/.conda/envs/myenv/bin/python
+# See fsat_as19.sbatch for FSAT_ROOT / FSAT_PYTHON.
+ROOT=${FSAT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+PY=${FSAT_PYTHON:-python3}
 MAN=$ROOT/manifests/asvspoof19
 SRC=${SRC:-$ROOT/runs}
 DST=${DST:-$ROOT/runs_eval1e-4}
