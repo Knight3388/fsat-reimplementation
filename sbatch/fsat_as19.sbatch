@@ -44,6 +44,12 @@ ROOT=${FSAT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 PY=${FSAT_PYTHON:-python3}
 SMOKE=${SMOKE:-0}
 
+# SEED controls both the run's randomness and its output directory, so a
+# multi-seed sweep does not clobber itself. Use the SAME seed for both arms of a
+# comparison: identical init and data order makes the difference paired, which
+# cancels shared variance and needs roughly half the runs of an unpaired design.
+SEED=${SEED:-1000}
+
 # Table 3 rows, in order.
 NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
 ADVERSARY=(none none time fsat)
@@ -80,7 +86,13 @@ fi
 # that killed job 263770 without paying for a full training run.
 TEST_MAN=${TEST_MAN:-$MAN/eval.tsv}
 
-OUT=$ROOT/runs/$NAME
+# Seed 1000 keeps the original unsuffixed path so the first batch of runs stays
+# addressable; every other seed gets its own directory.
+if [ "$SEED" = "1000" ]; then
+  OUT=$ROOT/runs/$NAME
+else
+  OUT=$ROOT/runs/${NAME}_s${SEED}
+fi
 mkdir -p "$OUT" "$ROOT/logs"
 
 echo "=================================================================="
@@ -119,7 +131,7 @@ ARGS=(
   --eval-epsilon 1e-4 --eval-alpha 4e-4 --eval-alpha-time 4e-5
   --epochs "$EPOCHS"
   --lr 1e-3
-  --seed 1000
+  --seed "$SEED"
   --device cuda
   --save      "$OUT/model.pt"
   --save-best
