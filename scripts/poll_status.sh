@@ -13,6 +13,17 @@ ROOT=${FSAT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 PY=${FSAT_PYTHON:-python3}
 NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
 
+# Recover the seed this job was submitted with, because the run directory is
+# suffixed by seed for anything other than 1000. Reading the unsuffixed path for
+# every job silently reports seed 1000's numbers for the whole sweep -- which is
+# indistinguishable from a real result, and is exactly what happened before this
+# lookup existed.
+SEED=$(sacct -j "$JOB" -X --noheader -P -o SubmitLine 2>/dev/null |
+       grep -oE 'SEED=[0-9]+' | head -1 | cut -d= -f2)
+SEED=${SEED:-1000}
+SUFFIX=""
+[ "$SEED" != "1000" ] && SUFFIX="_s${SEED}"
+
 sacct -j "$JOB" -X --noheader -P -o JobID,State,Elapsed 2>/dev/null |
 while IFS='|' read -r id state elapsed; do
   case "$state" in
@@ -22,7 +33,7 @@ while IFS='|' read -r id state elapsed; do
 
   idx=${id##*_}
   name=${NAMES[$idx]:-task$idx}
-  report=$ROOT/runs/$name/report.json
+  report=$ROOT/runs/${name}${SUFFIX}/report.json
   summary="no report written"
 
   if [ -f "$report" ]; then
@@ -39,5 +50,5 @@ PYEOF
 )
   fi
 
-  printf '%s [%s] %s %s :: %s\n' "$id" "$state" "$elapsed" "$name" "$summary"
+  printf '%s [%s] %s %s seed=%s :: %s\n' "$id" "$state" "$elapsed" "$name" "$SEED" "$summary"
 done | sort
