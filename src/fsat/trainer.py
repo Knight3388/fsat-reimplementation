@@ -63,6 +63,13 @@ class TrainConfig:
     log_every: int = 10
     scheduler: bool = True
 
+    # Warmup + cosine, matching the schedule in the authors' released
+    # supplementary code (lr_schedule.WarmUpCosineLR). Set warmup_epochs=0 for
+    # the plain cosine schedule.
+    warmup_epochs: int = 0
+    warmup_lr: float = 1e-6
+    min_lr: float = 0.0
+
 
 class FSATTrainer:
     """Trains a waveform detector with the F-SAT min-max objective.
@@ -88,12 +95,33 @@ class FSATTrainer:
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
-        self.scheduler = (
-            torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max(1, self.config.epochs))
-            if self.config.scheduler
-            else None
-        )
+        self.scheduler = self._build_scheduler()
         self.history: List[Dict[str, float]] = []
+
+    # ------------------------------------------------------------------ #
+    def _build_scheduler(self):
+        cfg = self.config
+        if not cfg.scheduler:
+            return None
+        total = max(1, cfg.epochs)
+        if cfg.warmup_epochs <= 0:
+            return torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=total)
+
+        warm, base = cfg.warmup_epochs, cfg.learning_rate
+
+        def lr_lambda(epoch: int) -> float:
+            # Returns a MULTIPLIER on the optimizer's base lr, so every branch
+            # is expressed relative to `base`.
+            if epoch < warm:
+                lr = cfg.warmup_lr + (base - cfg.warmup_lr) * (epoch / max(warm, 1))
+            else:
+                import math
+                progress = (epoch - warm) / max(total - warm, 1)
+                cos_out = math.cos(math.pi * progress) + 1
+                lr = cfg.min_lr + 0.5 * (base - cfg.min_lr) * cos_out
+            return lr / base if base else 1.0
+
+        return torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
 
     # ------------------------------------------------------------------ #
     def _build_attack(self, kind: AdversaryKind) -> Optional[_PGDBase]:

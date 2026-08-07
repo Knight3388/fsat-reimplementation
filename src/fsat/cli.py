@@ -89,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ev.add_argument("--eval-alpha", type=float, default=None,
                     help="PGD step for frequency-domain evaluation (paper: 4e-4). Defaults to --alpha.")
+    ev.add_argument("--eval-steps", type=int, default=None,
+                    help="PGD iterations at evaluation (authors' eval_pgd.py: 10). "
+                         "Defaults to --steps, the training value.")
+    ev.add_argument("--eval-restarts", type=int, default=None,
+                    help="PGD restarts at evaluation (authors' eval_pgd.py: 5). "
+                         "Defaults to --restarts.")
     ev.add_argument("--eval-alpha-time", type=float, default=None,
                     help="PGD step for the time-domain probe (paper: 4e-5). Defaults to --eval-alpha.")
     ev.add_argument(
@@ -99,6 +105,29 @@ def build_parser() -> argparse.ArgumentParser:
              "everything. Setting this separately tests the domain-matched "
              "reading. Defaults to --eval-epsilon.",
     )
+
+    pre = p.add_argument_group("pretrained initialisation")
+    pre.add_argument(
+        "--pretrained",
+        help="Public RawNet3 speaker-verification checkpoint to fine-tune from "
+             "(e.g. huggingface jungjee/RawNet3 model.pt). The authors' released "
+             "code fine-tunes from one at lr=1e-5, so training from scratch is a "
+             "materially different regime.",
+    )
+    pre.add_argument("--pretrained-prefix", default="backbone.",
+                     help="Prefix to prepend to checkpoint keys to match this model.")
+    pre.add_argument("--min-pretrained-frac", type=float, default=0.9,
+                     help="Abort if less than this fraction of the checkpoint loads.")
+
+    sch = p.add_argument_group("schedule")
+    sch.add_argument("--warmup-epochs", type=int, default=0,
+                     help="Linear warmup epochs before cosine decay (authors' code: 1).")
+    sch.add_argument("--warmup-lr", type=float, default=1e-6)
+    sch.add_argument("--min-lr", type=float, default=0.0)
+    sch.add_argument("--n-fft", type=int, default=1024)
+    sch.add_argument("--hop-length", type=int, default=256,
+                     help="STFT hop. The authors' code uses 512, which changes "
+                          "the scale that epsilon is measured against.")
 
     opt = p.add_argument_group("optimization")
     opt.add_argument("--epochs", type=int, default=10)
@@ -131,6 +160,51 @@ def build_parser() -> argparse.ArgumentParser:
              "from the aggregate report.",
     )
     return p
+
+
+def load_pretrained(model, path: str, prefix: str = "backbone.", min_frac: float = 0.9) -> dict:
+    """Load a public RawNet3 speaker-verification checkpoint into the detector.
+
+    The authors' released code fine-tunes from such a checkpoint with
+    ``load_state_dict(..., strict=False)``. That is silently dangerous: this
+    reimplementation nests the backbone one level deeper, so WITHOUT the prefix
+    remapping **zero** of the 234 tensors match, ``strict=False`` swallows it,
+    and the run trains from random init while appearing to fine-tune.
+
+    So this reports what actually loaded and raises if the fraction falls below
+    ``min_frac``. A pretrained flag that silently does nothing is worse than no
+    flag at all.
+    """
+    blob = torch.load(path, map_location="cpu", weights_only=False)
+    state = blob.get("model", blob) if isinstance(blob, dict) else blob
+
+    own = model.state_dict()
+    mapped, skipped = {}, []
+    for k, v in state.items():
+        pk = f"{prefix}{k}" if prefix else k
+        if pk in own and own[pk].shape == v.shape:
+            mapped[pk] = v
+        else:
+            skipped.append(k)
+
+    frac = len(mapped) / max(len(state), 1)
+    result = model.load_state_dict(mapped, strict=False)
+    print(f"pretrained: loaded {len(mapped)}/{len(state)} tensors ({frac:.1%}) from {path}",
+          flush=True)
+    if skipped:
+        print(f"  not loaded ({len(skipped)}): {skipped[:6]}"
+              f"{' ...' if len(skipped) > 6 else ''}", flush=True)
+    if result.missing_keys:
+        print(f"  randomly initialised ({len(result.missing_keys)}): "
+              f"{result.missing_keys[:6]}", flush=True)
+
+    if frac < min_frac:
+        raise RuntimeError(
+            f"only {frac:.1%} of the pretrained checkpoint loaded, below the "
+            f"{min_frac:.0%} floor. Refusing to continue: this would train from "
+            f"near-random init while claiming to fine-tune. Check --pretrained-prefix."
+        )
+    return {"loaded": len(mapped), "total": len(state), "fraction": frac}
 
 
 def _write_scores(path: str, dataset, logits, labels) -> None:
@@ -287,9 +361,17 @@ def main(argv: Optional[list] = None) -> int:
         sample_rate=args.sample_rate,
         device=args.device,
         log_every=args.log_every,
+        n_fft=args.n_fft,
+        hop_length=args.hop_length,
+        warmup_epochs=args.warmup_epochs,
+        warmup_lr=args.warmup_lr,
+        min_lr=args.min_lr,
     )
 
     model = RawNet3Detector(sample_rate=args.sample_rate)
+    if args.pretrained:
+        load_pretrained(model, args.pretrained, args.pretrained_prefix,
+                        args.min_pretrained_frac)
     if args.load:
         state = torch.load(args.load, map_location="cpu", weights_only=False)
         model.load_state_dict(state["model"] if "model" in state else state)
@@ -297,16 +379,18 @@ def main(argv: Optional[list] = None) -> int:
     trainer = FSATTrainer(model, config)
 
     # Evaluation-time attack budget, independent of the training budget.
+    _ev_steps = args.eval_steps if args.eval_steps is not None else args.steps
+    _ev_restarts = args.eval_restarts if args.eval_restarts is not None else args.restarts
     eval_attack = AttackConfig(
         epsilon=args.eval_epsilon if args.eval_epsilon is not None else args.epsilon,
         alpha=args.eval_alpha if args.eval_alpha is not None else args.alpha,
-        num_steps=args.steps, num_restarts=args.restarts,
+        num_steps=_ev_steps, num_restarts=_ev_restarts,
     )
     eval_attack_time = AttackConfig(
         epsilon=(args.eval_epsilon_time if args.eval_epsilon_time is not None
                  else eval_attack.epsilon),
         alpha=(args.eval_alpha_time if args.eval_alpha_time is not None else eval_attack.alpha),
-        num_steps=args.steps, num_restarts=args.restarts,
+        num_steps=_ev_steps, num_restarts=_ev_restarts,
     )
 
     print(
@@ -352,6 +436,8 @@ def main(argv: Optional[list] = None) -> int:
         "epsilon_time": eval_attack_time.epsilon,
         "alpha_freq": eval_attack.alpha,
         "alpha_time": eval_attack_time.alpha,
+        "steps": _ev_steps,
+        "restarts": _ev_restarts,
         "matches_training_budget": eval_attack.epsilon == args.epsilon,
         "domain_matched": eval_attack.epsilon != eval_attack_time.epsilon,
     }
