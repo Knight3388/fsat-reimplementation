@@ -20,11 +20,18 @@
 > and clip length. This repo therefore targets **ASVspoof2019**, a public
 > corpus the paper also evaluates on.
 >
-> **No results are published in this repository.** Numbers we have generated
-> are single-seed and still under correction, and an earlier set of ours was
-> wrong by a wide margin (see *Two different epsilons* below for the trap that
-> caused it). Do not cite figures from this code without running your own
-> seeds.
+> **Results are in [RESULTS.md](RESULTS.md).** Short version: the
+> implementation replicates (clean gain +8.07 pp vs the paper's claimed +7.7),
+> but the central claim — that band-selective 4-8 kHz adversarial training beats
+> isotropic adversarial training — does not transfer to ASVspoof2019, under any
+> of the three defensible readings of the paper's attack budget, across 5 paired
+> seeds. That is a statement about transfer to a public benchmark, **not** a
+> refutation of the paper, whose own numbers are measured on data nobody else
+> can obtain.
+>
+> Two earlier versions of our results were wrong, in one case by 23 percentage
+> points and with the sign reversed. RESULTS.md documents each error and how it
+> surfaced, because that is the more useful thing to learn from.
 
 ### If you are here to learn the method
 
@@ -38,7 +45,9 @@ idea. `uv run pytest -q` runs 165 tests that assert the paper's formulas hold.
 The section *Where this departs from the paper, and why* is worth reading in
 full: it lists eight places the paper is ambiguous or silent, and what we chose.
 Learning to spot and document those gaps is most of the skill in reproducing a
-paper.
+paper. Then read [RESULTS.md](RESULTS.md) — in particular the four mistakes,
+one of which produced a confident, entirely wrong result that survived two
+rounds of reporting before it was caught.
 
 Self-contained and dependency-light: PyTorch, NumPy and SciPy only. No
 `asteroid-filterbanks`, no `audiomentations`, no dataset download required to
