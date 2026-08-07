@@ -83,6 +83,7 @@ srun "$PY" -u -m fsat.cli \
   --device cuda \
   --report "$OUT/report.json" \
   --eval-attacks --eval-corruptions --eval-subset 4000 \
+  ${DUMP_SCORES:+--dump-scores "$OUT/scores.tsv"} \
   --seed "$SEED"
 rc=$?
 

@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 from .attacks import AttackConfig
 from .data import AugmentConfig, ManifestDataset, SyntheticSpeechDataset, collate
 from .evaluation import evaluate_attack_bands, evaluate_attack_domains, evaluate_corruptions
+from .metrics import classification_report
 from .models import RawNet3Detector
 from .trainer import FSATTrainer, TrainConfig
 
@@ -122,7 +123,47 @@ def build_parser() -> argparse.ArgumentParser:
              "Clean accuracy always uses the full set. The cap is recorded in the report.",
     )
     out.add_argument("--log-every", type=int, default=10)
+    out.add_argument(
+        "--dump-scores",
+        help="Write per-utterance clean scores to this TSV "
+             "(utt_id, key, logit_bonafide, logit_spoof, cm_score). Required for "
+             "min t-DCF and per-attack breakdowns, which cannot be recovered "
+             "from the aggregate report.",
+    )
     return p
+
+
+def _write_scores(path: str, dataset, logits, labels) -> None:
+    """Dump per-utterance scores in loader order.
+
+    The countermeasure score follows the ASVspoof convention: **higher means
+    more bonafide**, computed as the log-softmax difference
+    ``log P(bonafide) - log P(spoof)``. Getting this polarity backwards silently
+    inverts both EER and t-DCF, so the raw per-class logits are written
+    alongside it and the header records the convention.
+    """
+    import os
+
+    from .metrics import REAL
+
+    log_probs = torch.log_softmax(logits.float(), dim=1)
+    cm = (log_probs[:, REAL] - log_probs[:, 1 - REAL]).tolist()
+
+    items = getattr(dataset, "items", None)
+    if items is None or len(items) != len(cm):
+        # Without a 1:1 path list the utterance ids cannot be trusted; emit an
+        # index instead of silently mislabelling every row.
+        ids = [f"idx{i}" for i in range(len(cm))]
+    else:
+        ids = [os.path.splitext(os.path.basename(p))[0] for p, _ in items]
+
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("# cm_score = log P(bonafide) - log P(spoof); HIGHER = more bonafide\n")
+        fh.write("utt_id\tkey\tlogit_bonafide\tlogit_spoof\tcm_score\n")
+        for i, uid in enumerate(ids):
+            key = "bonafide" if int(labels[i]) == REAL else "spoof"
+            fh.write(f"{uid}\t{key}\t{float(logits[i, REAL]):.6f}\t"
+                     f"{float(logits[i, 1 - REAL]):.6f}\t{cm[i]:.6f}\n")
 
 
 def _dataset_labels(dataset) -> list:
@@ -328,7 +369,14 @@ def main(argv: Optional[list] = None) -> int:
 
     if report_loader is not None:
         split = "test" if test_set is not None else "val"
-        clean = trainer.evaluate(report_loader)
+        if args.dump_scores:
+            # One forward pass, reused for both the report and the score dump.
+            logits, labels = trainer.predict(report_loader)
+            clean = classification_report(logits, labels)
+            _write_scores(args.dump_scores, report_set, logits, labels)
+            print(f"wrote per-utterance scores to {args.dump_scores}", flush=True)
+        else:
+            clean = trainer.evaluate(report_loader)
         print(f"\nclean ({split}, n={len(report_set)}):  {clean}")
         report["clean"] = clean.as_dict()
         report["report_split"] = split

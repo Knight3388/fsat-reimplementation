@@ -166,14 +166,25 @@ class FSATTrainer:
 
     # ------------------------------------------------------------------ #
     @torch.no_grad()
-    def evaluate(self, loader: Iterable) -> ClassificationReport:
-        """Clean accuracy, in the paper's real/fake/avg format."""
+    def predict(self, loader: Iterable):
+        """Raw ``(logits, labels)`` over a loader, in loader order.
+
+        Kept separate from :meth:`evaluate` so callers that need per-utterance
+        scores (t-DCF, per-attack breakdowns) can get them without re-running
+        the forward pass. Order is preserved, so a caller may zip the result
+        against an unshuffled dataset's items to recover utterance ids.
+        """
         self.model.eval()
         logits, labels = [], []
         for x, y in loader:
             logits.append(self.model(x.to(self.device)).cpu())
             labels.append(y)
-        return classification_report(torch.cat(logits), torch.cat(labels))
+        return torch.cat(logits), torch.cat(labels)
+
+    def evaluate(self, loader: Iterable) -> ClassificationReport:
+        """Clean accuracy, in the paper's real/fake/avg format."""
+        logits, labels = self.predict(loader)
+        return classification_report(logits, labels)
 
     def evaluate_under_attack(self, loader: Iterable, attack: _PGDBase) -> ClassificationReport:
         """Accuracy under an adversarial attack (Table 5 / Fig. 7b).
