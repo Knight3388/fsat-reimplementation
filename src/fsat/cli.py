@@ -90,6 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="PGD step for frequency-domain evaluation (paper: 4e-4). Defaults to --alpha.")
     ev.add_argument("--eval-alpha-time", type=float, default=None,
                     help="PGD step for the time-domain probe (paper: 4e-5). Defaults to --eval-alpha.")
+    ev.add_argument(
+        "--eval-epsilon-time", type=float, default=None,
+        help="Attack magnitude for the time-domain probe. The paper quotes "
+             "eps=0.01 for frequency and 1e-4 for time but never says whether "
+             "1e-4 is the time-DOMAIN budget or the EVALUATION budget for "
+             "everything. Setting this separately tests the domain-matched "
+             "reading. Defaults to --eval-epsilon.",
+    )
 
     opt = p.add_argument_group("optimization")
     opt.add_argument("--epochs", type=int, default=10)
@@ -254,7 +262,8 @@ def main(argv: Optional[list] = None) -> int:
         num_steps=args.steps, num_restarts=args.restarts,
     )
     eval_attack_time = AttackConfig(
-        epsilon=eval_attack.epsilon,
+        epsilon=(args.eval_epsilon_time if args.eval_epsilon_time is not None
+                 else eval_attack.epsilon),
         alpha=(args.eval_alpha_time if args.eval_alpha_time is not None else eval_attack.alpha),
         num_steps=args.steps, num_restarts=args.restarts,
     )
@@ -298,10 +307,12 @@ def main(argv: Optional[list] = None) -> int:
         report["best_epoch"] = best["epoch"]
 
     report["eval_attack"] = {
-        "epsilon": eval_attack.epsilon,
+        "epsilon_freq": eval_attack.epsilon,
+        "epsilon_time": eval_attack_time.epsilon,
         "alpha_freq": eval_attack.alpha,
         "alpha_time": eval_attack_time.alpha,
         "matches_training_budget": eval_attack.epsilon == args.epsilon,
+        "domain_matched": eval_attack.epsilon != eval_attack_time.epsilon,
     }
 
     # Persist the trained weights BEFORE evaluating. Evaluation is long and can

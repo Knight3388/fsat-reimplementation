@@ -27,27 +27,38 @@ ROOT=${FSAT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 PY=${FSAT_PYTHON:-python3}
 MAN=$ROOT/manifests/asvspoof19
 SRC=${SRC:-$ROOT/runs}
-DST=${DST:-$ROOT/runs_eval1e-4}
+
+# Evaluation budget. Defaults reproduce the eps=1e-4-everywhere reading.
+# Set EPS_TIME different from EPS_FREQ for the DOMAIN-MATCHED reading, i.e.
+# frequency probes at 0.01 and the time probe at 1e-4, which is the other
+# defensible way to read the paper's two quoted epsilons.
+EPS_FREQ=${EPS_FREQ:-1e-4}
+EPS_TIME=${EPS_TIME:-$EPS_FREQ}
+A_FREQ=${A_FREQ:-4e-4}
+A_TIME=${A_TIME:-4e-5}
+SEED=${SEED:-1000}
+DST=${DST:-$ROOT/runs_eval_e${EPS_FREQ}_t${EPS_TIME}}
 
 NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
-RANDAUG=(0 1 1 1)
 
 i=${SLURM_ARRAY_TASK_ID:-0}
 NAME=${NAMES[$i]}
-CKPT=$SRC/$NAME/model.pt
+# Seed 1000 lives in the unsuffixed directory, every other seed is suffixed.
+if [ "$SEED" = "1000" ]; then RUNDIR=$NAME; else RUNDIR=${NAME}_s${SEED}; fi
+CKPT=$SRC/$RUNDIR/model.pt
 
 if [ ! -f "$CKPT" ]; then
   echo "ERROR: checkpoint not found: $CKPT" >&2
   exit 1
 fi
 
-OUT=$DST/$NAME
+OUT=$DST/$RUNDIR
 mkdir -p "$OUT" "$ROOT/logs"
 
 echo "=================================================================="
-echo "re-evaluating : $NAME"
+echo "re-evaluating : $RUNDIR (seed $SEED)"
 echo "checkpoint    : $CKPT"
-echo "budget        : eps=1e-4 alpha_freq=4e-4 alpha_time=4e-5 (paper Table 5)"
+echo "budget        : eps_freq=$EPS_FREQ eps_time=$EPS_TIME alpha_freq=$A_FREQ alpha_time=$A_TIME"
 echo "node          : $(hostname)"
 echo "started       : $(date -Is)"
 echo "=================================================================="
@@ -66,12 +77,13 @@ srun "$PY" -u -m fsat.cli \
   --sample-rate 16000 --duration 4.0 --batch-size 32 \
   --workers "${SLURM_CPUS_PER_TASK:-2}" \
   --load "$CKPT" --eval-only \
-  --eval-epsilon 1e-4 --eval-alpha 4e-4 --eval-alpha-time 4e-5 \
+  --eval-epsilon "$EPS_FREQ" --eval-epsilon-time "$EPS_TIME" \
+  --eval-alpha "$A_FREQ" --eval-alpha-time "$A_TIME" \
   --steps 5 \
   --device cuda \
   --report "$OUT/report.json" \
   --eval-attacks --eval-corruptions --eval-subset 4000 \
-  --seed 1000
+  --seed "$SEED"
 rc=$?
 
 echo "=================================================================="
