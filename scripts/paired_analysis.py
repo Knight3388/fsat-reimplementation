@@ -95,9 +95,14 @@ def main(argv):
         wins = sum(1 for d in diffs if (d < 0) == (m == "eer"))
         print(f"\n{m}:")
         print("  per seed: " + ", ".join(f"{d:+.2f}" for d in diffs))
-        print(f"  mean {mean:+.3f}  sd {sd:.3f}  t({n-1}) = {t:+.2f}")
-        print(f"  bootstrap 95% CI [{lo:+.3f}, {hi:+.3f}]  "
-              f"{'excludes 0' if (lo > 0) == (hi > 0) else 'INCLUDES 0'}")
+        if n > 1:
+            print(f"  mean {mean:+.3f}  sd {sd:.3f}  t({n-1}) = {t:+.2f}")
+            # nan comparisons silently evaluate False, which made a single-seed
+            # run print "excludes 0" for a CI that does not exist.
+            verdict = "excludes 0" if (lo > 0) == (hi > 0) else "INCLUDES 0"
+            print(f"  bootstrap 95% CI [{lo:+.3f}, {hi:+.3f}]  {verdict}")
+        else:
+            print(f"  mean {mean:+.3f}   (n=1: no sd, no CI, no significance)")
         print(f"  {better} in {wins}/{n} seeds")
         if sd == sd and sd > 0 and abs(mean) > 0:
             need = 7.85 * (sd / abs(mean)) ** 2  # paired, 80% power, alpha=.05
