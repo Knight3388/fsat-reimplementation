@@ -1,4 +1,29 @@
-# Replication results, and how we got them wrong twice first
+# Replication results, and how we got them wrong three times first
+
+> [!IMPORTANT]
+> **Final verdict, and it is a null.** The authors' code turned out to exist, as
+> an ICLR supplementary archive linked from nowhere. Re-run with *their*
+> hyperparameters over 5 paired seeds, **F-SAT and plain isotropic time-domain
+> adversarial training are statistically indistinguishable on ASVspoof2019** —
+> every metric's confidence interval includes zero. Resolving the residual
+> differences would need **266-298 paired seeds**.
+>
+> | Metric | F-SAT − AT(Time) | 95% CI | Seeds needed |
+> |---|---|---|---|
+> | EER | −0.046 | [−0.253, +0.183] | 266 |
+> | Clean avg | +0.151 | [−1.178, +1.584] | 1133 |
+> | Attacked | −0.458 | [−2.150, +2.117] | 298 |
+> | Corrupted | +0.632 | [−0.627, +2.047] | — |
+>
+> The one large effect is not F-SAT at all: **fine-tuning a pretrained RawNet3
+> cut EER roughly fourfold, ~7.5% to ~1.8%.** That single choice dwarfs
+> everything the paper's method contributes on this corpus.
+>
+> Everything below the *Setup* section describes the earlier, misconfigured
+> attempts. They are kept deliberately — the sequence of being confidently wrong
+> three times is the most instructive part of this repository.
+
+
 
 This documents an attempted replication of F-SAT (Zhang et al., ICLR 2025,
 arXiv:2411.00121) on **ASVspoof2019 LA**, and — deliberately — the errors made
@@ -145,6 +170,39 @@ the 71,237-utterance eval set.
 **Lesson.** Persist expensive artifacts the moment they exist, before anything
 that can fail independently. Checkpoints now save before evaluation.
 
+### Mistake 5 — the code existed the whole time
+
+We reimplemented from the paper text after concluding no code was released,
+having checked Hugging Face, the GitHub API under several term sets, the arXiv
+full text including appendix, and the ICLR poster page. All negative.
+
+The authors' full training and evaluation pipeline was sitting in a 10 MB
+**supplementary archive on the ICLR proceedings page**, linked from nowhere and
+surfaced by no search. It settles every hyperparameter the paper omits, and we
+had guessed ten of them wrong — including that they *fine-tune a pretrained
+RawNet3 at lr=1e-5*, where we trained from scratch at 1e-3.
+
+Two whole result sets had to be withdrawn because of it.
+
+**Lesson.** Before concluding "no code released", check the conference
+supplementary archive. NeurIPS, ICLR and ICML all host them, papers frequently
+fail to mention them, and search engines do not index them.
+
+### Mistake 6 — quoting a power estimate from four points
+
+At four paired seeds, F-SAT led on EER in 4/4 with a small standard deviation,
+and the power calculation said ~9 seeds would settle it. We reported that and
+queued five more runs.
+
+The fifth pair came in against F-SAT, tripled the standard deviation, and the
+required sample size jumped from 9 to **266**. The confidence interval, which had
+excluded zero, swallowed it.
+
+**Lesson.** A standard deviation from four observations is barely an estimate,
+and every quantity derived from it inherits that. The queued extension was
+cancelled once the arithmetic was honest, because five more seeds cannot resolve
+an effect that needs 266.
+
 ### Two smaller ones
 
 - `--eval-subset` originally took the **first** N utterances. The eval manifest
@@ -190,14 +248,22 @@ Paired, **3 suffice**. Five were run.
 
 ## Verdict
 
-The implementation replicates. The central claim does not transfer to
-ASVspoof2019 under any reading of the paper's attack budget.
+The implementation replicates. Run with the authors' own configuration, the
+central claim is **not reproduced and not refuted** — on ASVspoof2019 the two
+methods are indistinguishable, and the difference is too small to resolve with
+any feasible number of seeds.
 
-This is **not** a refutation. The claim is made on data nobody else can obtain,
-and it may well hold there. What can be said is narrower and still worth
-saying: on the standard public benchmark, with the baseline trained at the
-budget the paper specifies for it, band-selective adversarial training does not
-beat plain isotropic adversarial training.
+This is **not** a refutation of the paper. Its claim is measured on
+DeepFakeVox-HQ, which nobody else can obtain, and it may well hold there. What
+can be said is narrower: on the standard public benchmark, band-selective
+adversarial training confers no measurable advantage over plain isotropic
+adversarial training, while the choice of pretrained initialisation dominates
+both.
+
+If you take one thing from this document, take the fourfold EER improvement from
+initialisation. It is a much larger effect than the method under study, it is
+mentioned nowhere in the paper, and it was only discoverable by reading code the
+paper does not cite.
 
 Reproduce with `scripts/paired_analysis.py`, `scripts/score_analysis.py` and
 `scripts/tdcf_summary.py`.
