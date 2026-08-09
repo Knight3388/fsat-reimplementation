@@ -43,6 +43,17 @@ MAN=$ROOT/manifests/asvspoof19
 PRETRAINED=${FSAT_PRETRAINED:-$ROOT/model_zoo/rawnet3_model.pt}
 SEED=${SEED:-1000}
 
+# Tuning-sweep overrides. Defaults reproduce the authors' configuration exactly,
+# so leaving these unset gives the paper-faithful run.
+#   GAMMA  weight on the robust loss (authors: 0.1)
+#   F_LO/F_HI  adversarial band in Hz (authors: 4000-8000)
+#   TAG    when set, results go to runs_tuning/<TAG>_s<SEED> instead of
+#          runs_paper/, so tuning variants never collide with the main sweep.
+GAMMA=${GAMMA:-0.1}
+F_LO=${F_LO:-4000}
+F_HI=${F_HI:-8000}
+TAG=${TAG:-}
+
 NAMES=(rawnet3 rawnet3_randaug rawnet3_randaug_at_time rawnet3_randaug_fsat)
 ADVERSARY=(none none time fsat)
 RANDAUG=(0 1 1 1)
@@ -62,11 +73,18 @@ if [ ! -f "$PRETRAINED" ]; then
   exit 1
 fi
 
-if [ "$SEED" = "1000" ]; then OUT=$ROOT/runs_paper/$NAME; else OUT=$ROOT/runs_paper/${NAME}_s${SEED}; fi
+if [ -n "$TAG" ]; then
+  OUT=$ROOT/runs_tuning/${TAG}_s${SEED}
+elif [ "$SEED" = "1000" ]; then
+  OUT=$ROOT/runs_paper/$NAME
+else
+  OUT=$ROOT/runs_paper/${NAME}_s${SEED}
+fi
 mkdir -p "$OUT" "$ROOT/logs"
 
 echo "=================================================================="
 echo "config     : $NAME  (adversary=$ADV randaug=$AUG)  seed=$SEED"
+echo "tuning     : gamma=$GAMMA band=${F_LO}-${F_HI}Hz tag=${TAG:-none}"
 echo "pretrained : $PRETRAINED"
 echo "budget     : train eps=${TRAIN_EPS[$i]} alpha=${TRAIN_ALPHA[$i]} iters=2"
 echo "             eval  eps=5e-4 alpha=1e-4 restarts=5 iters=10"
@@ -91,8 +109,8 @@ ARGS=(
   --workers "${SLURM_CPUS_PER_TASK:-2}"
   --balanced-sampler
   --adversary "$ADV"
-  --gamma 0.1
-  --f-lo 4000 --f-hi 8000
+  --gamma "$GAMMA"
+  --f-lo "$F_LO" --f-hi "$F_HI"
   --n-fft 1024 --hop-length 512
   --epsilon "${TRAIN_EPS[$i]}" --alpha "${TRAIN_ALPHA[$i]}" --steps 2 --restarts 1
   --eval-epsilon 5e-4 --eval-alpha 1e-4 --eval-alpha-time 1e-4
