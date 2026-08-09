@@ -19,6 +19,11 @@
 > cut EER roughly fourfold, ~7.5% to ~1.8%.** That single choice dwarfs
 > everything the paper's method contributes on this corpus.
 >
+> **Two follow-up sweeps at 5 paired seeds each:** the paper's 4-8 kHz band
+> choice **holds up** (no alternative beats it; only the narrow 6-8 kHz is
+> clearly worse), but its γ=0.1 does not — **γ=1.0 buys +8.81 pp of adversarial
+> robustness at no measurable cost**, in 5/5 seeds.
+>
 > Everything below the *Setup* section describes the earlier, misconfigured
 > attempts. They are kept deliberately — the sequence of being confidently wrong
 > three times is the most instructive part of this repository.
@@ -115,6 +120,48 @@ performance for robustness on the hard cases.
 | A15 | 1.04 | 2.89 | +1.85 |
 | A17 | 15.67 | 16.69 | +1.02 |
 | others | < 1.8 | < 3 | |
+
+---
+
+## Tuning sweeps: is the paper's γ and band choice right?
+
+Each variant paired against the paper's own choice at the same seed, 5 seeds.
+Pairing is essential here: seed 1002 produces ~3.1% EER across *every* band while
+other seeds sit near 1.5-2.0%, so unpaired comparisons are swamped by seed noise.
+
+### Band placement — the paper's 4-8 kHz holds up
+
+| vs 4-8 kHz | EER | Attacked | Verdict |
+|---|---|---|---|
+| 0-8 kHz | +0.280 [+0.001,+0.604] | +2.56 (includes 0) | slightly worse EER |
+| 2-8 kHz | +0.167 (includes 0) | +0.90 (includes 0) | **indistinguishable** |
+| 6-8 kHz | +0.457 [+0.268,+0.744] | **−5.79 [−7.10,−4.48]** | **worse on all 4 metrics, 0/5 seeds** |
+
+A single-seed sweep had suggested 2-8 kHz beat 4-8 kHz on every metric. **It does
+not replicate.** At 5 paired seeds the two are indistinguishable, and the
+apparent advantage was seed noise — the exact error this document warns about
+elsewhere, committed again.
+
+What does survive: **6-8 kHz is decisively worse**, losing on all four metrics in
+all five seeds, most heavily under attack (−5.79 pp). So bandwidth matters and
+too narrow a band hurts, but the paper's specific 4-8 kHz selection is not
+beaten by any alternative tested.
+
+### γ — the paper's 0.1 leaves real robustness unclaimed
+
+| vs γ=0.1 | EER | Attacked | Seeds better |
+|---|---|---|---|
+| γ=0.3 | +0.071 (includes 0) | **+3.34 [+1.31,+5.03]** | 4/5 |
+| γ=1.0 | −0.013 (includes 0) | **+8.81 [+7.19,+10.46]** | **5/5** |
+
+**γ=1.0 buys +8.81 pp of adversarial robustness at no measurable cost to EER,
+clean accuracy or corruption robustness.** Every seed agrees, the interval sits
+far from zero, and only 3 seeds are needed for 80% power. The paper's Fig. 9b
+selects γ=0.1.
+
+This is the one place where a specific tuning choice in the paper is clearly
+improvable, and it is worth more than the method's headline claim: γ moves
+robustness by 8.8 points while band-selective-versus-isotropic moves it by 0.5.
 
 ---
 
