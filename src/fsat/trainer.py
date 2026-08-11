@@ -34,6 +34,27 @@ from .stft import BandSelectiveSTFT
 AdversaryKind = str  # one of: "none", "fsat", "time", "phase"
 
 
+def _mixup(x: torch.Tensor, y: torch.Tensor, alpha: float):
+    """Convex combination of a batch with a permutation of itself.
+
+    Mirrors ``regularization.mixup_data`` in the authors' supplementary code:
+    a single scalar lambda drawn from Beta(alpha, alpha) for the whole batch.
+    ``alpha <= 0`` disables it and returns the batch untouched.
+    """
+    if alpha <= 0:
+        return x, y, y, 1.0
+    lam = float(torch.distributions.Beta(alpha, alpha).sample())
+    index = torch.randperm(x.size(0), device=x.device)
+    return lam * x + (1 - lam) * x[index], y, y[index], lam
+
+
+def _mixup_ce(logits: torch.Tensor, y_a: torch.Tensor, y_b: torch.Tensor, lam: float):
+    """``lam * CE(y_a) + (1 - lam) * CE(y_b)`` -- their ``mixup_criterion``."""
+    if lam == 1.0:
+        return F.cross_entropy(logits, y_a)
+    return lam * F.cross_entropy(logits, y_a) + (1 - lam) * F.cross_entropy(logits, y_b)
+
+
 @dataclass
 class TrainConfig:
     """Training hyperparameters.
@@ -69,6 +90,12 @@ class TrainConfig:
     warmup_epochs: int = 0
     warmup_lr: float = 1e-6
     min_lr: float = 0.0
+
+    # Mixup alpha (0 disables). The authors' train_attack_frequency.py opens with
+    # `assert args.mixup, "Mixup is preferred for spectrum attack"` -- mixup is
+    # MANDATORY for the F-SAT attack in their code, not an optional extra, and
+    # their reproduce command passes --mixup --mixup_alpha 0.5.
+    mixup_alpha: float = 0.0
 
 
 class FSATTrainer:
@@ -149,13 +176,20 @@ class FSATTrainer:
             # attack does not pollute BatchNorm running statistics.
             x_adv = self.attack(self.model, x, y) if self.attack is not None else None
 
-            # Outer minimization.
+            # Outer minimization. Note the ordering the authors use: the attack
+            # is crafted on the ORIGINAL inputs, and mixup is then applied
+            # separately to the clean and adversarial branches with INDEPENDENT
+            # lambdas and permutations.
             self.optimizer.zero_grad(set_to_none=True)
-            logits_clean = self.model(x)
-            loss_clean = F.cross_entropy(logits_clean, y)
+            a = self.config.mixup_alpha
+
+            x_c, ya_c, yb_c, lam_c = _mixup(x, y, a)
+            logits_clean = self.model(x_c)
+            loss_clean = _mixup_ce(logits_clean, ya_c, yb_c, lam_c)
 
             if x_adv is not None:
-                loss_robust = F.cross_entropy(self.model(x_adv), y)
+                x_a, ya_a, yb_a, lam_a = _mixup(x_adv, y, a)
+                loss_robust = _mixup_ce(self.model(x_a), ya_a, yb_a, lam_a)
                 loss = loss_clean + self.config.gamma * loss_robust
             else:
                 loss_robust = torch.zeros((), device=self.device)

@@ -124,6 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Linear warmup epochs before cosine decay (authors' code: 1).")
     sch.add_argument("--warmup-lr", type=float, default=1e-6)
     sch.add_argument("--min-lr", type=float, default=0.0)
+    sch.add_argument(
+        "--mixup-alpha", type=float, default=0.0,
+        help="Mixup alpha, 0 disables. The authors' code asserts mixup is on for "
+             "the spectrum (F-SAT) attack and their reproduce command uses 0.5.",
+    )
     sch.add_argument("--n-fft", type=int, default=1024)
     sch.add_argument("--hop-length", type=int, default=256,
                      help="STFT hop. The authors' code uses 512, which changes "
@@ -366,6 +371,7 @@ def main(argv: Optional[list] = None) -> int:
         warmup_epochs=args.warmup_epochs,
         warmup_lr=args.warmup_lr,
         min_lr=args.min_lr,
+        mixup_alpha=args.mixup_alpha,
     )
 
     model = RawNet3Detector(sample_rate=args.sample_rate)
