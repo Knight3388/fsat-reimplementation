@@ -63,8 +63,11 @@ def series(root: Path, sibling: Path | None, tree: str, stem: str):
             r = load(root / "runs_paper" / name / "report.json")
         else:
             r = load(root / "runs_tuning" / f"{stem}_s{s}" / "report.json")
-            if r is None and sibling is not None:
-                # Seed 1000 of each tuning variant was run first in the sibling tree.
+            # The sibling tree ran each tuning variant at SEED 1000 ONLY, so this
+            # fallback must be gated on the seed. Without that gate it hands the
+            # same single run back for every missing seed, silently counting one
+            # result as several and manufacturing agreement between "seeds".
+            if r is None and sibling is not None and s == 1000:
                 for sweep in ("band_sweep", "gamma_sweep"):
                     r = r or load(sibling / "runs" / sweep / stem / "report.json")
         if r:
