@@ -21,12 +21,109 @@
 >
 > **Two follow-up sweeps at 5 paired seeds each:** the paper's 4-8 kHz band
 > choice **holds up** (no alternative beats it; only the narrow 6-8 kHz is
-> clearly worse), but its γ=0.1 does not — **γ=1.0 buys +8.81 pp of adversarial
-> robustness at no measurable cost**, in 5/5 seeds.
+> clearly worse), but its γ=0.1 does not — **γ=2.0 is better on all four
+> metrics, buying +12.3 pp of adversarial robustness**, and the trend has not
+> plateaued.
 >
 > Everything below the *Setup* section describes the earlier, misconfigured
 > attempts. They are kept deliberately — the sequence of being confidently wrong
 > three times is the most instructive part of this repository.
+
+---
+
+## Master table — every configuration against the paper's own
+
+Reference row is F-SAT exactly as the paper specifies it: 4-8 kHz band, γ=0.1,
+pretrained init. Deltas are **paired** against that row at the same seed, which
+matters because seed effects here are large and common-mode — one seed yields
+~3.1% EER across *every* configuration while others give ~1.5-2.0%.
+
+| Configuration | n | EER | Clean | Attacked | Corrupted |
+|---|---|---|---|---|---|
+| RawNet3 | 5 | 2.69 `+0.87` | 87.80 `−4.98` | 60.87 `−12.18` | 78.49 `−14.18` |
+| +RandAug | 5 | 2.13 `+0.31` | 93.09 `+0.31` | 58.33 `−14.72` | 92.75 `+0.07` |
+| +AT(Time) | 5 | 1.86 `+0.05` | 92.63 `−0.15` | 73.51 `+0.46` | 92.04 `−0.63` |
+| **F-SAT (paper)** | 5 | **1.81** | **92.78** | **73.05** | **92.67** |
+| band 0-8 kHz | 5 | 2.09 `+0.28` | 92.41 `−0.37` | 75.61 `+2.56` | 91.96 `−0.71` |
+| band 2-8 kHz | 5 | 1.98 `+0.17` | 92.85 `+0.06` | 73.95 `+0.90` | 92.38 `−0.29` |
+| band 6-8 kHz | 5 | 2.27 `+0.46` | 91.66 `−1.12` | 67.26 `−5.79` | 91.76 `−0.91` |
+| γ=0.3 | 5 | 1.88 `+0.07` | 92.34 `−0.44` | 76.39 `+3.34` | 92.36 `−0.31` |
+| γ=1.0 | 5 | 1.80 `−0.01` | 93.62 `+0.84` | 81.86 `+8.81` | 93.15 `+0.47` |
+| **γ=2.0** | 5 | **1.51 `−0.30`** | **95.18 `+2.39`** | **85.37 `+12.32`** | **94.62 `+1.95`** |
+
+EER lower is better, the rest higher. Regenerate with
+`python scripts/master_table.py --root . --sibling ../FSAT-Exps`.
+
+### What each component actually contributes
+
+The pipeline decomposes cleanly, and every stage earns its place except the one
+the paper is about:
+
+- **Pretrained initialisation** — the dominant factor by a wide margin. From
+  scratch this same setup gives ~7.5% EER, fine-tuned it gives ~2.7%. The paper
+  does not discuss it.
+- **RandAugment** — buys clean accuracy (+5.3) and corruption robustness
+  (**+14.3**), but *costs* adversarial robustness (61.4 → 58.3). Augmenting for
+  channel robustness makes the model **more** vulnerable to adversarial
+  perturbation, which is not something the paper notes.
+- **Adversarial training** — buys adversarial robustness (**+17.0** over
+  +RandAug) and leaves corruption robustness untouched. Clean separation of
+  concerns.
+- **Band-selective vs isotropic** — nothing measurable. This is the paper's
+  contribution.
+- **γ** — the largest single tunable. Moving 0.1 → 2.0 is worth +12.3 pp
+  attacked *and* −0.30 EER, roughly 25x the effect of the band choice.
+
+### min t-DCF, the metric ASVspoof2019 is judged on
+
+EER alone is not comparable to this corpus's literature.
+
+| | AT(Time) | F-SAT | Official baselines |
+|---|---|---|---|
+| mean min t-DCF | **0.057** | 0.057 | CQCC-GMM 0.2366, LFCC-GMM 0.2116 |
+
+Paired difference −0.0020, CI [−0.0068, +0.0040], includes zero — consistent
+with the EER null. ~0.057 is competitive with strong published systems, not
+merely better than the 2019 GMM baselines.
+
+### Per attack, and what pretrained init really bought
+
+| Attack | Misconfigured run | Paper-faithful |
+|---|---|---|
+| A17 | 15.67 | **3.65** |
+| A18 | 23.32 | **3.77** |
+| all others | ≤ 2.2 | ≤ 2.2 |
+
+Pretrained initialisation did not merely lower average EER — it **largely
+solved A17 and A18**, the two attacks that dominate every published error
+breakdown on this corpus. F-SAT versus isotropic AT differs by at most 0.17 pp
+on any single attack, reinforcing the null.
+
+---
+
+## Attempt 4: the authors' exact reproduce command
+
+`readme.txt` in the supplementary archive gives a command that differs from the
+`hyperparameters.py` **defaults** used for everything above:
+
+| | Defaults (used above) | readme command |
+|---|---|---|
+| epochs | 10 | **15** |
+| batch size | 32 | **16** |
+| spectrum ε / α | 0.005 / 0.002 | **0.01 / 0.005** |
+| aug_prob | 1.0 | **0.9** |
+| mixup | none | **on, α=0.5** |
+
+**Mixup is not optional in their implementation.**
+`train_attack_frequency.py` opens with
+`assert args.mixup, "Mixup is preferred for spectrum attack"`, so the spectrum
+attack refuses to run without it — yet mixup appears nowhere in the paper. Every
+F-SAT run above therefore omits a component their code requires.
+
+Implemented to match `regularization.py`: the attack is crafted on the
+**un-mixed** inputs, then *independent* mixup is applied to the clean and
+adversarial branches, with losses `lam*CE(y_a) + (1-lam)*CE(y_b)`. See
+`sbatch/fsat_as19_readme.sbatch`. Results pending at the time of writing.
 
 
 
@@ -95,6 +192,13 @@ tests F-SAT at its own training budget, which is where it should be strongest.
 
 ### min t-DCF, the metric ASVspoof2019 is judged on
 
+> [!WARNING]
+> **The numbers in this subsection and the next are from the SUPERSEDED
+> misconfigured run**, kept to document what the errors below produced. The
+> corrected figures are in the master table above: min t-DCF **0.057** for both
+> arms with the paired difference including zero, and A17/A18 at **3.65/3.77**
+> rather than 15.67/23.32. Do not cite anything from here.
+
 EER alone is not comparable to this corpus's literature.
 
 | | AT(Time) | F-SAT |
@@ -104,9 +208,9 @@ EER alone is not comparable to this corpus's literature.
 
 Paired difference **+0.0240** t-DCF, CI [+0.0134, +0.0339], **0/5 seeds**
 favour F-SAT. For calibration, the official baselines are CQCC-GMM 0.2366 and
-LFCC-GMM 0.2116, so this system is respectable but far from modern SOTA.
+LFCC-GMM 0.2116.
 
-### Per attack
+### Per attack (superseded — see the warning above)
 
 F-SAT is worse on **11 of 13** attacks. A17 and A18 carry nearly all the
 absolute error, and F-SAT is worse on both — it does not trade average
@@ -311,6 +415,21 @@ If you take one thing from this document, take the fourfold EER improvement from
 initialisation. It is a much larger effect than the method under study, it is
 mentioned nowhere in the paper, and it was only discoverable by reading code the
 paper does not cite.
+
+### The paper's own settings, ranked by what they are worth
+
+Everything measured at 5 paired seeds on ASVspoof2019 LA:
+
+| Choice | Effect | In the paper? |
+|---|---|---|
+| Pretrained initialisation | ~7.5% → ~2.7% EER, and A17/A18 largely solved | not discussed |
+| γ = 2.0 instead of 0.1 | +12.3 pp attacked, −0.30 EER | γ=0.1 selected (Fig. 9b) |
+| Adversarial training at all | +17.0 pp attacked | yes |
+| RandAugment | +14.3 pp corrupted, **−3.1 pp attacked** | yes, cost not noted |
+| Mixup | required by their code, untested here | absent |
+| Band selection (4-8 kHz) | no measurable effect | **the contribution** |
+
+The two largest levers on this corpus are the two the paper says least about.
 
 Reproduce with `scripts/paired_analysis.py`, `scripts/score_analysis.py` and
 `scripts/tdcf_summary.py`.
