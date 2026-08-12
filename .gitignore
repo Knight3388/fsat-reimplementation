@@ -22,3 +22,6 @@ logs/
 *.pt
 *.ckpt
 results*.json
+
+# Local-only working notes: drafts, correspondence, scratch.
+_local/
