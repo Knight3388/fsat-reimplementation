@@ -94,7 +94,8 @@ done
 moves=0
 now=$(date +%s)
 
-while IFS='|' read -r jid jname jsub; do
+while IFS='|' read -r jid jname jsub cur; do
+  cur="${cur// /}"
   [[ -z "${jid:-}" ]] && continue
   (( moves >= MAX_MOVES )) && { log "  move cap ${MAX_MOVES} reached, stopping"; break; }
 
@@ -120,7 +121,14 @@ while IFS='|' read -r jid jname jsub; do
     continue
   fi
 
-  cur=$(squeue -h -j "$jid" -o "%P" 2>/dev/null | head -1)
+  # $cur comes from the same squeue call that produced this row. Looking it up
+  # again with `squeue -j <arrayid>` returns empty for pending array elements
+  # like 270141_[3], which silently disabled the same-partition guard and
+  # produced no-op "moves" onto the partition a job was already on.
+  if [[ -z "$cur" ]]; then
+    log "  SKIP $jid: could not determine current partition"
+    continue
+  fi
   for p in "${PARTS[@]}"; do
     [[ "$p" == "$cur" ]] && continue
     (( ${FREE[$p]:-0} > 0 )) || continue
@@ -142,6 +150,6 @@ while IFS='|' read -r jid jname jsub; do
     fi
     break
   done
-done < <(squeue -u "$USER" -h -t PD -o "%i|%j|%V" 2>/dev/null)
+done < <(squeue -u "$USER" -h -t PD -o "%i|%j|%V|%P" 2>/dev/null)
 
 log "=== end, $moves move(s) ==="
